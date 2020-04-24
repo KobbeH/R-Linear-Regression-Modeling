@@ -1,0 +1,302 @@
+---
+title: "Modeling with Regression"
+author: "Kobbe Harwell"
+date: ""
+output:
+    html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r packages, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(PASWR2)
+library(car)
+library(dplyr) 
+library(lattice)
+library(boot)
+library(MASS)
+```
+
+
+
+## Data and idea comes from (*Militino et al., 2004*).
+
+
+The goal is to create a multiple linear regression model that can be used to predict the total price of
+apartments by their structural characteristics. The data frame `VIT2005` contains
+several variables, and further description of the data can be found below.
+
+A data frame with 218 observations on the following 5 variables:
+
+* `totalprice` (the market total price (in Euros) of the apartment including garage(s) and storage room(s))
+
+* `area` (the total living area of the apartment in square meters)
+
+* `zone` (a factor indicating the neighborhood where the apartment is located with levels `Z11, Z21, Z31, Z32, Z34, Z35, Z36, Z37, Z38, Z41, Z42, Z43, Z44, Z45, Z46, Z47, Z48, Z49, Z52, Z53, Z56, Z61, and Z62`)
+
+* `category` (a factor indicating the condition of the apartment with levels `2A, 2B, 3A, 3B, 4A, 4B`, and `5A` ordered so that `2A` is the best and `5A` is the worst)
+
+* `age` (age of the apartment in years)
+
+* `floor` (floor on which the apartment is located)
+
+* `rooms` (total number of rooms including bedrooms, dining room, and kitchen)
+
+* `out` (a factor indicating the percent of the apartment exposed to the elements: The levels `E100, E75, E50, and E25`, correspond to complete exposure, `75`% exposure, `50`% exposure, and `25`% exposure, respectively.)
+
+* `conservation` (is an ordered factor indicating the state of conservation of the apartment. The levels `1A, 2A, 2B, and 3A` are ordered from best to worst conservation.)
+
+* `toilets` (the number of bathrooms)
+
+* `garage` (the number of garages)
+
+* `elevator` (indicates the absence (0) or presence (1) of elevators.)
+
+* `streetcategory` (an ordered factor from best to worst indicating the category of the street with levels `S2, S3, S4, and S5`)
+
+* `heating` (a factor indicating the type of heating with levels `1A, 3A, 3B, and 4A` which correspond to: no heating, low-standard private heating, high-standard private heating, and central heating, respectively.)
+
+* `storage` (the number of storage rooms outside of the apartment)
+
+
+###
+
+(a) Characterize the shape, center, and spread of the variable `totalprice`.
+
+```{r}
+
+ggplot(data = VIT2005, aes(x=totalprice)) + geom_density(fill="blue")+theme_bw()+geom_vline(aes(xintercept=median(totalprice)),color="red",linetype="dashed",size=1)
+
+MD <- median(VIT2005$totalprice)
+# 
+iqr <- IQR(VIT2005$totalprice)
+# 
+c(MD, iqr)
+```
+
+**Observation:** The distribution of `totalprice` is skewed right with a median of `269750` and an `IQR` of `100125`
+
+
+#########################################################################################################
+
+
+(b) Explore the relationships between totalprice and the numerical explanatory variables `area, age, floor, rooms, toilets, garage, elevator`, and `storage`.
+
+```{r}
+scatterplotMatrix( ~ totalprice + area + age + floor + rooms, data = VIT2005)
+
+scatterplotMatrix( ~ totalprice + toilets+ garage+ elevator+ storage, data = VIT2005)
+
+```
+
+
+
+(c) 
+
+The correlation coefficients are:
+
+```{r}
+NUM <- c("area", "age", "floor", "rooms", "toilets", "garage","elevator", "storage")
+COR <- cor(VIT2005[, "totalprice"], VIT2005[, NUM])
+COR
+```
+
+**Observation:** The highest three correlations with `totalprice` occur with `area` (0.8092), `toilets` (0.6876), and `rooms`(0.5256).
+
+**Model (A)** Backward elimination to develop a model that predicts totalprice using the data frame `VIT2005`. “P-value-to remove” of `5`%.
+
+```{r}
+model.be <- lm(totalprice ~ ., data = VIT2005)
+
+drop1(model.be, test = "F")
+```
+
+
+Drop most insignificant variable from the model. 
+```{r}
+model.be <- update(model.be, .~. - age)
+drop1(model.be, test = "F")
+```
+
+Which one is to be dropped next?
+
+Answer: floor
+
+```{r}
+model.be <- update(model.be, .~. - floor)
+drop1(model.be, test = "F")
+
+```
+
+Which one is to be dropped next?
+
+Answer: conservation
+
+```{r}
+model.be <- update(model.be, .~. - conservation)
+drop1(model.be, test = "F")
+
+```
+
+Which one is to be dropped next?
+
+Answer: rooms
+
+```{r}
+model.be <- update(model.be, .~. - rooms)
+drop1(model.be, test = "F")
+
+```
+
+Which one is to be dropped next?
+
+Answer: storage
+
+```{r}
+model.be <- update(model.be, .~. - storage)
+drop1(model.be, test = "F")
+```
+
+
+Finally,
+
+```{r}
+formula(model.be)
+
+modelA <- lm(formula(model.be), data = VIT2005)
+```
+
+
+Observation: Backward elimination suggests using the variables `area`, `zone`, `category`, `out`, `toilets`, `garage`, `elevator`, `streetcategory`, and `heating` to best predict `totalprice`.
+
+
+
+Compute $CV_n$, the leave-one-out cross validation error, for `modelA`. 
+Compute $CV_5$, the **five-fold** cross validation error, for `modelA`. 
+Compute $R^2$, $R^2_a$, the `AIC`, and the `BIC` for **Model (A)**.
+
+(i)
+
+```{r}
+modelAg <- glm(formula(model.be), data = VIT2005)
+cv.errorN <- cv.glm(VIT2005, modelAg)
+
+CVNa <- cv.errorN$delta[1]
+CVNa
+```
+ 
+
+```{r}
+set.seed(5)
+cv.error5 <- cv.glm(VIT2005, modelAg, K = 5)
+CV5a <- cv.error5$delta[1]
+CV5a
+```
+
+Observation: The $CV_n = 647026246$ for Model (A), and $CV_5 = 652546038$ for Model (A).
+
+
+(ii)
+
+```{r}
+
+mgof <- function(model = model, data = DF, ...){
+  R2a <- summary(model)$adj.r.squared
+  R2 <- summary(model)$r.squared
+  aic <- AIC(model)
+  bic <- AIC(model, k = log(nrow(data)))
+  se <- summary(model)$sigma
+  form <- formula(model)
+  ANS <- c(R2 = R2, R2.adj = R2a, AIC = aic, BIC = bic, SE = se)
+  ANS
+}
+
+MGOF <- mgof(model = modelA, data = VIT2005)
+MGOF
+```
+
+Observation: The total proportion of variability explained by modelA is `0.9138`.
+
+
+(d)
+
+Explore the residuals of Model A. (**Diagnostics: Checking the model assumptions**)
+
+```{r}
+residualPlot(modelA, main = "Model A")
+```
+
+Observation: The residuals versus the fitted values for Model (A) have a definite curvature indicating the model is not quite adequate.
+
+
+
+**(e)** Finding a suitable transformation for totalprice and developing a new model
+
+```{r}
+boxCox(modelA, lambda = seq(-0.5, 0.5, length = 200))
+```
+
+
+
+#### Observation: A `log` transformation is suggested for the response `totalprice` in **Model (A)**.
+
+
+
+#### **Model (E)**: Revised Log model. Data Frame `VIT2005`. “P-value-to remove” of `5`%.
+
+```{r}
+VIT2005$logtotalprice <- log(VIT2005$totalprice)
+
+model.be <- lm(logtotalprice ~ ., data = VIT2005[ ,-1])
+drop1(model.be, test = "F")
+
+```
+
+Decide to drop: age
+```{r}
+model.be <- update(model.be, .~. -age)
+drop1(model.be, test = "F")
+```
+
+Decide to drop: conservation
+```{r}
+model.be <- update(model.be, .~. - conservation)
+drop1(model.be, test = "F")
+```
+
+Decide to drop: floor
+```{r}
+model.be <- update(model.be, .~. - floor)
+drop1(model.be, test = "F")
+```
+
+
+Decide to drop: rooms
+```{r}
+model.be <- update(model.be, .~. - rooms)
+drop1(model.be, test = "F")
+```
+
+Decide to drop: streetcategory
+```{r}
+model.be <- update(model.be, .~. - streetcategory)
+drop1(model.be, test = "F")
+```
+
+
+
+```{r}
+formula(model.be)
+
+modelE <- lm(formula(model.be), data = VIT2005)
+```
+
+```{r}
+residualPlot(modelE, main = "Model E")
+```
